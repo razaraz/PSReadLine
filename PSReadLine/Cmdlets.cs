@@ -607,6 +607,8 @@ namespace Microsoft.PowerShell
         [Parameter]
         public ViMode ViMode { get; set; }
 
+        private IDisposable DispatchTables;
+
         [ExcludeFromCodeCoverage]
         protected IDisposable UseRequestedDispatchTables()
         {
@@ -631,19 +633,34 @@ namespace Microsoft.PowerShell
 
             return null;
         }
+
+        [ExcludeFromCodeCoverage]
+        protected override void BeginProcessing()
+        {
+            DispatchTables = UseRequestedDispatchTables();
+        }
+
+        [ExcludeFromCodeCoverage]
+        protected override void EndProcessing()
+        {
+            if(DispatchTables != null)
+            {
+                DispatchTables.Dispose();
+            }
+        }
     }
 
     [Cmdlet("Set", "PSReadlineKeyHandler", HelpUri = "http://go.microsoft.com/fwlink/?LinkId=528810")]
     public class SetPSReadlineKeyHandlerCommand : ChangePSReadlineKeyHandlerCommandBase, IDynamicParameters
     {
-        [Parameter(Position = 1, Mandatory = true, ParameterSetName = "ScriptBlock")]
+        [Parameter(Position = 1, Mandatory = true, ParameterSetName = "ScriptBlock", ValueFromPipelineByPropertyName = true)]
         [ValidateNotNull]
         public ScriptBlock ScriptBlock { get; set; }
 
-        [Parameter(ParameterSetName = "ScriptBlock")]
+        [Parameter(ParameterSetName = "ScriptBlock", ValueFromPipelineByPropertyName = true)]
         public string BriefDescription { get; set; }
 
-        [Parameter(ParameterSetName = "ScriptBlock")]
+        [Parameter(ParameterSetName = "ScriptBlock", ValueFromPipelineByPropertyName = true)]
         [Alias("LongDescription")]  // Alias to stay comptible with previous releases
         public string Description { get; set; }
 
@@ -651,24 +668,17 @@ namespace Microsoft.PowerShell
         private const string FunctionParameterSet = "Function";
 
         [ExcludeFromCodeCoverage]
-        protected override void EndProcessing()
+        protected override void ProcessRecord()
         {
-            using (UseRequestedDispatchTables())
+            if (ParameterSetName.Equals(FunctionParameterSet))
             {
-                if (ParameterSetName.Equals(FunctionParameterSet))
-                {
-                    var function = (string)_dynamicParameters.Value[FunctionParameter].Value;
-                    var keyHandler = (Action<ConsoleKeyInfo?, object>)
-                        Delegate.CreateDelegate(typeof (Action<ConsoleKeyInfo?, object>),
-                            typeof (PSConsoleReadLine).GetMethod(function));
-                    BriefDescription = function;
-                    PSConsoleReadLine.SetKeyHandler(Chord, keyHandler, BriefDescription, Description);
-                }
-                else
-                {
-                    PSConsoleReadLine.SetKeyHandler(Chord, ScriptBlock, BriefDescription, Description);
-                }
+                var function = (string)_dynamicParameters.Value[FunctionParameter].Value;
+                var keyHandler = (Action<ConsoleKeyInfo?, object>)
+                    Delegate.CreateDelegate(typeof (Action<ConsoleKeyInfo?, object>),
+                        typeof (PSConsoleReadLine).GetMethod(function));
+                BriefDescription = function;
             }
+            PSConsoleReadLine.SetKeyHandler(Chord, ScriptBlock, BriefDescription, Description);
         }
 
         private readonly Lazy<RuntimeDefinedParameterDictionary> _dynamicParameters =
@@ -693,7 +703,8 @@ namespace Microsoft.PowerShell
                 {
                     Position = 1,
                     Mandatory = true,
-                    ParameterSetName = FunctionParameterSet
+                    ParameterSetName = FunctionParameterSet,
+                    ValueFromPipelineByPropertyName = true
                 },
                 new ValidateSetAttribute(bindableFunctions.ToArray())
             };
@@ -756,12 +767,9 @@ namespace Microsoft.PowerShell
     public class RemoveKeyHandlerCommand : ChangePSReadlineKeyHandlerCommandBase
     {
         [ExcludeFromCodeCoverage]
-        protected override void EndProcessing()
+        protected override void ProcessRecord()
         {
-            using (UseRequestedDispatchTables())
-            {
-                PSConsoleReadLine.RemoveKeyHandler(Chord);
-            }
+            PSConsoleReadLine.RemoveKeyHandler(Chord);
         }
     }
 
